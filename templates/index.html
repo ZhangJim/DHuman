@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Digital Human</title>
+    <script async src="https://unpkg.com/es-module-shims/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script id="waterVertexShader" type="x-shader/x-vertex">
+        uniform float time;
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        varying vec3 vNormal;
+        varying float vWaveHeight;
+
+        // 改进的噪声函数
+        float random(vec2 st) {
+            return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+        }
+
+        // Perlin噪声
+        float noise(vec2 p) {
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            float a = random(i);
+            float b = random(i + vec2(1.0, 0.0));
+            float c = random(i + vec2(0.0, 1.0));
+            float d = random(i + vec2(1.0, 1.0));
+            return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+
+        void main() {
+            vUv = uv;
+            vec3 pos = position;
+            
+            // 多层波浪叠加
+            float wave1 = sin(pos.x * 0.5 + time) * 
+                         sin(pos.z * 0.5 + time) * 0.5;
+            float wave2 = sin(pos.x * 1.0 + time * 1.2) * 
+                         sin(pos.z * 1.0 + time * 1.1) * 0.25;
+            float wave3 = sin(pos.x * 2.0 + time * 0.8) * 
+                         sin(pos.z * 2.0 + time * 0.9) * 0.125;
+
+            // 添加Perlin噪声作为大浪
+            float bigWave = noise(vec2(pos.x * 0.05 + time * 0.02, pos.z * 0.05)) * 2.0;
+            
+            // 组合所有波浪效果
+            float totalWave = wave1 + wave2 + wave3 + bigWave;
+            
+            // 在远处增加波浪高度
+            float distanceEffect = smoothstep(0.0, 50.0, abs(pos.z));
+            totalWave *= (1.0 + distanceEffect);
+
+            pos.y += totalWave;
+            vWaveHeight = totalWave;
+
+            // 计算法线
+            vec3 n = normal;
+            float normalStrength = 0.5;
+            n.x += (wave1 + wave2) * normalStrength;
+            n.z += (wave2 + wave3) * normalStrength;
+            vNormal = normalize(n);
+            
+            vPosition = pos;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+        }
+    </script>
+
+    <script id="waterFragmentShader" type="x-shader/x-fragment">
+        uniform float time;
+        uniform vec3 waterColor;
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        varying vec3 vNormal;
+        varying float vWaveHeight;
+
+        void main() {
+            // 基础水色 - 使用更深邃的蓝色
+            vec3 deepColor = vec3(0.0, 0.1, 0.2);
+            vec3 surfaceColor = vec3(0.0, 0.5, 1.0);
+            vec3 foamColor = vec3(1.0, 1.0, 1.0);
+            
+            // 基于波浪高度混合颜色
+            float heightFactor = smoothstep(-1.0, 1.0, vWaveHeight);
+            vec3 waterCol = mix(deepColor, surfaceColor, heightFactor);
+            
+            // 添加浪花效果
+            float foam = smoothstep(0.8, 1.0, heightFactor);
+            waterCol = mix(waterCol, foamColor, foam * 0.5);
+            
+            // 添加高光
+            vec3 lightDir = normalize(vec3(1.0, 1.0, 1.0));
+            float specular = pow(max(dot(vNormal, lightDir), 0.0), 64.0);
+            waterCol += specular * 0.5;
+            
+            // 添加深度渐变
+            float depth = smoothstep(-2.0, 2.0, vPosition.y);
+            waterCol = mix(deepColor, waterCol, depth);
+            
+            // 添加波纹效果
+            float ripple = sin(vUv.x * 50.0 + time * 2.0) * 
+                          sin(vUv.y * 50.0 + time * 2.0) * 0.1;
+            waterCol += ripple;
+
+            gl_FragColor = vec4(waterCol, 0.9);
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // 初始化场景、相机和渲染器
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x87CEEB); // 天空蓝色
+        document.body.appendChild(renderer.domElement);
+
+        // 添加轨道控制器
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // 添加环境光和平行光
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 5, 5);
+        scene.add(directionalLight);
+
+        // 创建地面（沙滩）
+        const groundGeometry = new THREE.PlaneGeometry(100, 100);
+        const groundMaterial = new THREE.MeshStandardMaterial({ color: 0xF4A460 }); // 沙滩颜色
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -2;
+        scene.add(ground);
+
+        // 创建海面
+        function createSea() {
+            const seaGeometry = new THREE.PlaneGeometry(100, 50, 100, 50); // 增加细分度
+            
+            // 创建自定义着色器材质
+            const seaMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    waterColor: { value: new THREE.Color(0x0077be) }
+                },
+                vertexShader: document.getElementById('waterVertexShader').textContent,
+                fragmentShader: document.getElementById('waterFragmentShader').textContent,
+                transparent: true,
+                side: THREE.DoubleSide
+            });
+
+            const sea = new THREE.Mesh(seaGeometry, seaMaterial);
+            sea.rotation.x = -Math.PI / 2;
+            sea.position.z = -30;
+            sea.position.y = -1.9;
+            scene.add(sea);
+            return sea;
+        }
+
+        const sea = createSea();
+
+        // 创建时钟对象
+        const clock = new THREE.Clock();
+
+        // 加载人物模型
+        const loader = new GLTFLoader();
+        let mixer;
+
+        loader.load(
+            '/models/human.glb',
+            function (gltf) {
+                const model = gltf.scene;
+                
+                // 计算模型的包围盒
+                model.traverse(function(node) {
+                    if (node.isMesh) {
+                        // 计算每个网格的边界
+                        node.geometry.computeBoundingBox();
+                        node.geometry.computeBoundingSphere();
+                        
+                        // 确保几何体有正确的属性
+                        if (!node.geometry.attributes.position.array.length) {
+                            console.warn('Mesh has no vertices:', node);
+                            return;
+                        }
+                        
+                        // 手动设置位置属性的最小/最大值
+                        const positions = node.geometry.attributes.position.array;
+                        const minPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+                        const maxPos = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+                        
+                        for (let i = 0; i < positions.length; i += 3) {
+                            minPos.x = Math.min(minPos.x, positions[i]);
+                            minPos.y = Math.min(minPos.y, positions[i + 1]);
+                            minPos.z = Math.min(minPos.z, positions[i + 2]);
+                            maxPos.x = Math.max(maxPos.x, positions[i]);
+                            maxPos.y = Math.max(maxPos.y, positions[i + 1]);
+                            maxPos.z = Math.max(maxPos.z, positions[i + 2]);
+                        }
+                        
+                        node.geometry.boundingBox.set(minPos, maxPos);
+                    }
+                });
+
+                // 调整模型大小和位置
+                model.scale.set(1, 1, 1);
+                model.position.set(0, -2, 0);
+                scene.add(model);
+
+                // 处理动画
+                if (gltf.animations && gltf.animations.length > 0) {
+                    mixer = new THREE.AnimationMixer(model);
+                    const animations = gltf.animations;
+                    
+                    // 只播放第一个动画
+                    const action = mixer.clipAction(animations[0]);
+                    action.play();
+                    action.loop = THREE.LoopRepeat;
+                }
+            },
+            function (xhr) {
+                console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+            },
+            function (error) {
+                console.error('An error happened', error);
+            }
+        );
+
+        // 创建简单的房子
+        function createHouse() {
+            const house = new THREE.Group();
+            
+            // 房子主体
+            const bodyGeometry = new THREE.BoxGeometry(4, 4, 4);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            
+            // 房顶
+            const roofGeometry = new THREE.ConeGeometry(3, 2, 4);
+            const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+            const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+            roof.position.y = 3;
+            roof.rotation.y = Math.PI / 4;
+            
+            house.add(body);
+            house.add(roof);
+            house.position.set(-10, 0, -5);
+            scene.add(house);
+        }
+
+        // 创建简单的游艇
+        function createYacht() {
+            const yacht = new THREE.Group();
+            
+            // 船身
+            const hullGeometry = new THREE.BoxGeometry(6, 2, 2);
+            const hullMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const hull = new THREE.Mesh(hullGeometry, hullMaterial);
+            
+            yacht.add(hull);
+            yacht.position.set(15, -1, -25);
+            scene.add(yacht);
+        }
+
+        // 创建更真实的海鸥
+        function createSeagull() {
+            const seagull = new THREE.Group();
+            
+            // 身体
+            const bodyGeometry = new THREE.ConeGeometry(0.2, 0.8, 8);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.rotation.x = Math.PI / 2;
+            
+            // 翅膀
+            const wingGeometry = new THREE.PlaneGeometry(1.5, 0.4);
+            const wingMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xffffff,
+                side: THREE.DoubleSide
+            });
+            const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            const rightWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            
+            leftWing.position.set(-0.7, 0, 0);
+            rightWing.position.set(0.7, 0, 0);
+            
+            seagull.add(body);
+            seagull.add(leftWing);
+            seagull.add(rightWing);
+            seagull.position.set(0, 5, -15);
+            
+            scene.add(seagull);
+            return seagull;
+        }
+
+        // 创建小狗
+        function createDog() {
+            const dog = new THREE.Group();
+            
+            // 身体 - 更圆润的形状
+            const bodyGeometry = new THREE.BoxGeometry(0.8, 0.6, 1.2);
+            bodyGeometry.translate(0, 0.3, 0); // 将身体抬高一点
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            
+            // 头部 - 更像狗的形状
+            const headGeometry = new THREE.BoxGeometry(0.6, 0.5, 0.5);
+            const headMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.z = 0.8;
+            head.position.y = 0.5;
+            
+            // 耳朵
+            const earGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.1);
+            const earMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const leftEar = new THREE.Mesh(earGeometry, earMaterial);
+            const rightEar = new THREE.Mesh(earGeometry, earMaterial);
+            leftEar.position.set(-0.2, 0.7, 0.8);
+            rightEar.position.set(0.2, 0.7, 0.8);
+            
+            // 尾巴
+            const tailGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.4);
+            const tailMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const tail = new THREE.Mesh(tailGeometry, tailMaterial);
+            tail.position.set(0, 0.4, -0.6);
+            tail.rotation.x = Math.PI / 4;
+            
+            // 腿 - 更细长
+            const legGeometry = new THREE.BoxGeometry(0.15, 0.4, 0.15);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const legPositions = [
+                [-0.25, 0, 0.4],
+                [0.25, 0, 0.4],
+                [-0.25, 0, -0.4],
+                [0.25, 0, -0.4]
+            ];
+            
+            legPositions.forEach(pos => {
+                const leg = new THREE.Mesh(legGeometry, legMaterial);
+                leg.position.set(...pos);
+                dog.add(leg);
+            });
+            
+            dog.add(body);
+            dog.add(head);
+            dog.add(leftEar);
+            dog.add(rightEar);
+            dog.add(tail);
+            dog.position.set(-2, -1.6, 0);
+            scene.add(dog);
+        }
+
+        // 创建小猫
+        function createCat() {
+            const cat = new THREE.Group();
+            
+            // 身体 - 更优雅的形状
+            const bodyGeometry = new THREE.BoxGeometry(0.5, 0.4, 0.8);
+            bodyGeometry.translate(0, 0.2, 0);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            
+            // 头部 - 更圆的形状
+            const headGeometry = new THREE.SphereGeometry(0.25, 16, 16);
+            const headMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.z = 0.5;
+            head.position.y = 0.4;
+            
+            // 耳朵 - 更尖的三角形
+            const earGeometry = new THREE.ConeGeometry(0.1, 0.2, 4);
+            const earMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            const leftEar = new THREE.Mesh(earGeometry, earMaterial);
+            const rightEar = new THREE.Mesh(earGeometry, earMaterial);
+            leftEar.position.set(-0.15, 0.6, 0.5);
+            rightEar.position.set(0.15, 0.6, 0.5);
+            leftEar.rotation.x = -Math.PI / 6;
+            rightEar.rotation.x = -Math.PI / 6;
+            
+            // 尾巴 - 优雅的曲线
+            const tailGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.6);
+            const tailMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            const tail = new THREE.Mesh(tailGeometry, tailMaterial);
+            tail.position.set(0, 0.3, -0.4);
+            tail.rotation.x = Math.PI / 3;
+            
+            // 腿
+            const legGeometry = new THREE.BoxGeometry(0.1, 0.3, 0.1);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            const legPositions = [
+                [-0.15, 0, 0.3],
+                [0.15, 0, 0.3],
+                [-0.15, 0, -0.3],
+                [0.15, 0, -0.3]
+            ];
+            
+            legPositions.forEach(pos => {
+                const leg = new THREE.Mesh(legGeometry, legMaterial);
+                leg.position.set(...pos);
+                cat.add(leg);
+            });
+            
+            cat.add(body);
+            cat.add(head);
+            cat.add(leftEar);
+            cat.add(rightEar);
+            cat.add(tail);
+            cat.position.set(2, -1.6, 1);
+            scene.add(cat);
+        }
+
+        // 创建牛
+        function createCow() {
+            const cow = new THREE.Group();
+            
+            // 身体 - 更大更圆润
+            const bodyGeometry = new THREE.BoxGeometry(1.8, 1.4, 2.5);
+            bodyGeometry.translate(0, 0.7, 0);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                // 使用简单的黑白斑点图案
+                map: new THREE.TextureLoader().load('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFElEQVQYV2NkYGD4z4AHMP7//x8ACtID/+STc0sAAAAASUVORK5CYII=')
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            
+            // 头部 - 更长的形状
+            const headGeometry = new THREE.BoxGeometry(0.8, 0.8, 1.2);
+            const headMaterial = new THREE.MeshStandardMaterial({ color: 0xFFFFFF });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.z = 1.8;
+            head.position.y = 1;
+            
+            // 角
+            const hornGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.4);
+            const hornMaterial = new THREE.MeshStandardMaterial({ color: 0xDDDDDD });
+            const leftHorn = new THREE.Mesh(hornGeometry, hornMaterial);
+            const rightHorn = new THREE.Mesh(hornGeometry, hornMaterial);
+            leftHorn.position.set(-0.3, 1.5, 1.8);
+            rightHorn.position.set(0.3, 1.5, 1.8);
+            leftHorn.rotation.z = Math.PI / 4;
+            rightHorn.rotation.z = -Math.PI / 4;
+            
+            // 腿 - 更粗壮
+            const legGeometry = new THREE.BoxGeometry(0.4, 1.2, 0.4);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0xFFFFFF });
+            const legPositions = [
+                [-0.7, 0, 1],
+                [0.7, 0, 1],
+                [-0.7, 0, -1],
+                [0.7, 0, -1]
+            ];
+            
+            legPositions.forEach(pos => {
+                const leg = new THREE.Mesh(legGeometry, legMaterial);
+                leg.position.set(...pos);
+                cow.add(leg);
+            });
+            
+            cow.add(body);
+            cow.add(head);
+            cow.add(leftHorn);
+            cow.add(rightHorn);
+            cow.position.set(-5, -1.6, 2);
+            scene.add(cow);
+        }
+
+        // 创建场景元素
+        createHouse();
+        createYacht();
+        const seagull = createSeagull();
+        createDog();
+        createCat();
+        createCow();
+
+        // 修改相机初始位置和视角
+        camera.position.set(-5, 2, 15); // 调整相机位置
+        controls.target.set(0, 0, 0);   // 设置相机目标点
+        camera.lookAt(0, 0, 0);         // 设置相机朝向
+
+        // 限制轨道控制器的垂直旋转范围
+        controls.minPolarAngle = Math.PI / 4;    // 限制最小仰角
+        controls.maxPolarAngle = Math.PI / 2;    // 限制最大仰角
+        controls.enableDamping = true;           // 启用阻尼效果
+        controls.dampingFactor = 0.05;           // 设置阻尼系数
+
+        // 动画循环
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = clock.getDelta(); // 获取时间增量
+            
+            // 更新海面动画 - 降低更新频率
+            if (sea && sea.material.uniforms) {
+                sea.material.uniforms.time.value += delta * 0.5;
+            }
+            
+            // 更新动画混合器
+            if (mixer) {
+                mixer.update(delta);
+            }
+            
+            // 优化海鸥动画
+            if (seagull) {
+                const time = clock.getElapsedTime();
+                seagull.position.x = Math.sin(time * 0.5) * 10;
+                seagull.position.z = Math.cos(time * 0.5) * 5 - 15;
+                seagull.rotation.y = Math.atan2(
+                    Math.cos(time * 0.5) * 5,
+                    Math.cos(time * 0.5) * 10
+                );
+                
+                // 降低翅膀扇动的更新频率
+                const wingAngle = Math.sin(time * 5) * 0.2;
+                seagull.children[1].rotation.z = wingAngle;
+                seagull.children[2].rotation.z = -wingAngle;
+            }
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // 窗口大小调整
+        window.addEventListener('resize', onWindowResize, false);
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html> 
