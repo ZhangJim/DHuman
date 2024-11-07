@@ -113,12 +113,15 @@
             gl_FragColor = vec4(waterCol, 0.9);
         }
     </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/styles/weather-controls.css">
 </head>
 <body>
     <script type="module">
         import * as THREE from 'three';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { WeatherSystem } from '/js/weather-system.js';
 
         // 初始化场景、相机和渲染器
         const scene = new THREE.Scene();
@@ -133,9 +136,9 @@
         controls.enableDamping = true;
 
         // 添加环境光和平行光
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
         scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
         directionalLight.position.set(5, 5, 5);
         scene.add(directionalLight);
 
@@ -185,51 +188,21 @@
             function (gltf) {
                 const model = gltf.scene;
                 
-                // 计算模型的包围盒
-                model.traverse(function(node) {
-                    if (node.isMesh) {
-                        // 计算每个网格的边界
-                        node.geometry.computeBoundingBox();
-                        node.geometry.computeBoundingSphere();
-                        
-                        // 确保几何体有正确的属性
-                        if (!node.geometry.attributes.position.array.length) {
-                            console.warn('Mesh has no vertices:', node);
-                            return;
-                        }
-                        
-                        // 手动设置位置属性的最小/最大值
-                        const positions = node.geometry.attributes.position.array;
-                        const minPos = new THREE.Vector3(Infinity, Infinity, Infinity);
-                        const maxPos = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
-                        
-                        for (let i = 0; i < positions.length; i += 3) {
-                            minPos.x = Math.min(minPos.x, positions[i]);
-                            minPos.y = Math.min(minPos.y, positions[i + 1]);
-                            minPos.z = Math.min(minPos.z, positions[i + 2]);
-                            maxPos.x = Math.max(maxPos.x, positions[i]);
-                            maxPos.y = Math.max(maxPos.y, positions[i + 1]);
-                            maxPos.z = Math.max(maxPos.z, positions[i + 2]);
-                        }
-                        
-                        node.geometry.boundingBox.set(minPos, maxPos);
-                    }
-                });
-
                 // 调整模型大小和位置
                 model.scale.set(1, 1, 1);
                 model.position.set(0, -2, 0);
+                
+                // 修改朝向，让人物面向大海
+                model.rotation.y = 0; // 移除之前的 Math.PI
+                
                 scene.add(model);
 
-                // 处理动画
+                // 设置动画
                 if (gltf.animations && gltf.animations.length > 0) {
                     mixer = new THREE.AnimationMixer(model);
-                    const animations = gltf.animations;
-                    
-                    // 只播放第一个动画
-                    const action = mixer.clipAction(animations[0]);
+                    const animation = gltf.animations[0];
+                    const action = mixer.clipAction(animation);
                     action.play();
-                    action.loop = THREE.LoopRepeat;
                 }
             },
             function (xhr) {
@@ -240,40 +213,153 @@
             }
         );
 
-        // 创建简单的房子
+        // 创建更真实的房子
         function createHouse() {
             const house = new THREE.Group();
             
-            // 房子主体
+            // 主体
             const bodyGeometry = new THREE.BoxGeometry(4, 4, 4);
-            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc });
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xE8E8E8,  // 米白色
+                roughness: 0.7
+            });
             const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
             
-            // 房顶
-            const roofGeometry = new THREE.ConeGeometry(3, 2, 4);
-            const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+            // 屋顶
+            const roofGeometry = new THREE.ConeGeometry(3.5, 2, 4);
+            const roofMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x8B4513,  // 深棕色
+                roughness: 0.6
+            });
             const roof = new THREE.Mesh(roofGeometry, roofMaterial);
             roof.position.y = 3;
             roof.rotation.y = Math.PI / 4;
+
+            // 门
+            const doorGeometry = new THREE.BoxGeometry(1.2, 2, 0.1);
+            const doorMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x4A3C2C,  // 木门颜色
+                roughness: 0.5
+            });
+            const door = new THREE.Mesh(doorGeometry, doorMaterial);
+            door.position.set(0, -1, 2.05);
+
+            // 窗户
+            const windowGeometry = new THREE.BoxGeometry(1, 1, 0.1);
+            const windowMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x87CEEB,  // 天蓝色
+                roughness: 0.3,
+                metalness: 0.5
+            });
+
+            // 创建多个窗户
+            const windows = [
+                { x: -1.5, y: 0, z: 2.05 },
+                { x: 1.5, y: 0, z: 2.05 },
+                { x: -1.5, y: 1.5, z: 2.05 },
+                { x: 1.5, y: 1.5, z: 2.05 }
+            ];
+
+            windows.forEach(pos => {
+                const window = new THREE.Mesh(windowGeometry, windowMaterial);
+                window.position.set(pos.x, pos.y, pos.z);
+                house.add(window);
+            });
             
             house.add(body);
             house.add(roof);
+            house.add(door);
             house.position.set(-10, 0, -5);
             scene.add(house);
         }
 
-        // 创建简单的游艇
+        // 创建更真实的游艇
         function createYacht() {
             const yacht = new THREE.Group();
             
             // 船身
-            const hullGeometry = new THREE.BoxGeometry(6, 2, 2);
-            const hullMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const hullGeometry = new THREE.BoxGeometry(8, 2, 3);
+            const hullMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                roughness: 0.4,
+                metalness: 0.3
+            });
             const hull = new THREE.Mesh(hullGeometry, hullMaterial);
+            hull.position.y = 0.5;
+
+            // 船舱
+            const cabinGeometry = new THREE.BoxGeometry(4, 2, 2.5);
+            const cabinMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x1E3F66,  // 深蓝色
+                roughness: 0.5
+            });
+            const cabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
+            cabin.position.set(-1, 2, 0);
+
+            // 船头
+            const bowGeometry = new THREE.ConeGeometry(1.5, 2, 32);
+            const bowMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                roughness: 0.4,
+                metalness: 0.3
+            });
+            const bow = new THREE.Mesh(bowGeometry, bowMaterial);
+            bow.rotation.z = -Math.PI / 2;
+            bow.position.set(4, 0.5, 0);
+
+            // 桅杆
+            const mastGeometry = new THREE.CylinderGeometry(0.1, 0.1, 6);
+            const mastMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x4A3C2C,
+                roughness: 0.6
+            });
+            const mast = new THREE.Mesh(mastGeometry, mastMaterial);
+            mast.position.set(0, 4, 0);
+
+            // 船帆
+            const sailGeometry = new THREE.PlaneGeometry(3, 4);
+            const sailMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                side: THREE.DoubleSide,
+                roughness: 0.4
+            });
+            const sail = new THREE.Mesh(sailGeometry, sailMaterial);
+            sail.rotation.y = Math.PI / 4;
+            sail.position.set(0.5, 4, 0);
             
             yacht.add(hull);
+            yacht.add(cabin);
+            yacht.add(bow);
+            yacht.add(mast);
+            yacht.add(sail);
             yacht.position.set(15, -1, -25);
+            yacht.rotation.y = Math.PI / 6;
+
+            // 添加动画相关属性
+            yacht.moveDirection = 1; // 1 表示向前，-1 表示向后
+            yacht.startPosition = new THREE.Vector3(15, -1, -25);
+            yacht.endPosition = new THREE.Vector3(-15, -1, -25);
+            
+            // 添加更新函数
+            yacht.update = () => {
+                // 移动游艇
+                yacht.position.x += 0.05 * yacht.moveDirection;
+                
+                // 在到达终点时改变方向
+                if (yacht.position.x >= yacht.startPosition.x) {
+                    yacht.moveDirection = -1;
+                    yacht.rotation.y = Math.PI - Math.PI / 6; // 调整船头方向
+                } else if (yacht.position.x <= yacht.endPosition.x) {
+                    yacht.moveDirection = 1;
+                    yacht.rotation.y = Math.PI / 6;
+                }
+                
+                // 添加轻微的上下摆动
+                yacht.position.y = -1 + Math.sin(Date.now() * 0.001) * 0.1;
+            };
+
             scene.add(yacht);
+            return yacht;
         }
 
         // 创建更真实的海鸥
@@ -282,27 +368,90 @@
             
             // 身体
             const bodyGeometry = new THREE.ConeGeometry(0.2, 0.8, 8);
-            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                roughness: 0.5
+            });
             const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
             body.rotation.x = Math.PI / 2;
+            
+            // 头部
+            const headGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+            const headMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                roughness: 0.5
+            });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.z = 0.5;
+            head.position.y = 0.1;
+
+            // 喙
+            const beakGeometry = new THREE.ConeGeometry(0.05, 0.2, 8);
+            const beakMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFA500,  // 橙色
+                roughness: 0.5
+            });
+            const beak = new THREE.Mesh(beakGeometry, beakMaterial);
+            beak.rotation.x = -Math.PI / 2;
+            beak.position.z = 0.7;
+            beak.position.y = 0.1;
             
             // 翅膀
             const wingGeometry = new THREE.PlaneGeometry(1.5, 0.4);
             const wingMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0xffffff,
-                side: THREE.DoubleSide
+                color: 0xFFFFFF,
+                side: THREE.DoubleSide,
+                roughness: 0.5
             });
             const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
             const rightWing = new THREE.Mesh(wingGeometry, wingMaterial);
             
-            leftWing.position.set(-0.7, 0, 0);
-            rightWing.position.set(0.7, 0, 0);
+            leftWing.position.set(-0.7, 0.1, 0);
+            rightWing.position.set(0.7, 0.1, 0);
+
+            // 尾巴
+            const tailGeometry = new THREE.PlaneGeometry(0.4, 0.3);
+            const tailMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                side: THREE.DoubleSide,
+                roughness: 0.5
+            });
+            const tail = new THREE.Mesh(tailGeometry, tailMaterial);
+            tail.position.set(0, 0.1, -0.4);
             
             seagull.add(body);
+            seagull.add(head);
+            seagull.add(beak);
             seagull.add(leftWing);
             seagull.add(rightWing);
+            seagull.add(tail);
             seagull.position.set(0, 5, -15);
             
+            // 添加动画相关属性
+            seagull.time = 0;
+            seagull.centerPosition = new THREE.Vector3(0, 5, -15);
+            seagull.radius = 20; // 飞行半径
+            
+            // 添加更新函数
+            seagull.update = () => {
+                seagull.time += 0.005;
+                
+                // 圆形飞行路径
+                seagull.position.x = seagull.centerPosition.x + Math.cos(seagull.time) * seagull.radius;
+                seagull.position.z = seagull.centerPosition.z + Math.sin(seagull.time) * seagull.radius;
+                
+                // 添加上下起伏
+                seagull.position.y = seagull.centerPosition.y + Math.sin(seagull.time * 2) * 2;
+                
+                // 调整朝向
+                seagull.rotation.y = -seagull.time - Math.PI / 2;
+                
+                // 翅膀扇动动画
+                const wingAngle = Math.sin(Date.now() * 0.01) * 0.5;
+                seagull.children[3].rotation.z = wingAngle; // 左翅膀
+                seagull.children[4].rotation.z = -wingAngle; // 右翅膀
+            };
+
             scene.add(seagull);
             return seagull;
         }
@@ -311,42 +460,67 @@
         function createDog() {
             const dog = new THREE.Group();
             
-            // 身体 - 更圆润的形状
-            const bodyGeometry = new THREE.BoxGeometry(0.8, 0.6, 1.2);
-            bodyGeometry.translate(0, 0.3, 0); // 将身体抬高一点
-            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            // 身体 - 纯白色蓬松
+            const bodyGeometry = new THREE.BoxGeometry(0.7, 0.5, 1.1);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,  // 纯白色
+                roughness: 0.8    // 增加粗糙度显示毛茸茸的效果
+            });
             const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.3;
             
-            // 头部 - 更像狗的形状
-            const headGeometry = new THREE.BoxGeometry(0.6, 0.5, 0.5);
-            const headMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            // 头部 - 更圆更大
+            const headGeometry = new THREE.SphereGeometry(0.35, 16, 16);
+            const headMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                roughness: 0.8
+            });
             const head = new THREE.Mesh(headGeometry, headMaterial);
-            head.position.z = 0.8;
-            head.position.y = 0.5;
+            head.position.set(0, 0.5, 0.6);
             
-            // 耳朵
-            const earGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.1);
-            const earMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            // 吻部 - 黑色
+            const snoutGeometry = new THREE.BoxGeometry(0.2, 0.15, 0.2);
+            const snoutMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x000000
+            });
+            const snout = new THREE.Mesh(snoutGeometry, snoutMaterial);
+            snout.position.set(0, 0.4, 0.85);
+            
+            // 耳朵 - 三角形状
+            const earGeometry = new THREE.ConeGeometry(0.12, 0.25, 4);
+            const earMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                roughness: 0.8
+            });
             const leftEar = new THREE.Mesh(earGeometry, earMaterial);
             const rightEar = new THREE.Mesh(earGeometry, earMaterial);
-            leftEar.position.set(-0.2, 0.7, 0.8);
-            rightEar.position.set(0.2, 0.7, 0.8);
+            leftEar.position.set(-0.2, 0.8, 0.5);
+            rightEar.position.set(0.2, 0.8, 0.5);
+            leftEar.rotation.x = -Math.PI / 6;
+            rightEar.rotation.x = -Math.PI / 6;
             
-            // 尾巴
-            const tailGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.4);
-            const tailMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            // 尾巴 - 蓬松上卷
+            const tailGeometry = new THREE.TorusGeometry(0.15, 0.08, 8, 12, Math.PI);
+            const tailMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                roughness: 0.8
+            });
             const tail = new THREE.Mesh(tailGeometry, tailMaterial);
-            tail.position.set(0, 0.4, -0.6);
-            tail.rotation.x = Math.PI / 4;
+            tail.position.set(0, 0.4, -0.5);
+            tail.rotation.x = -Math.PI / 2;
             
-            // 腿 - 更细长
-            const legGeometry = new THREE.BoxGeometry(0.15, 0.4, 0.15);
-            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            // 腿 - 粗壮一些
+            const legGeometry = new THREE.CylinderGeometry(0.1, 0.08, 0.4);
+            const legMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                roughness: 0.8
+            });
+            
             const legPositions = [
-                [-0.25, 0, 0.4],
-                [0.25, 0, 0.4],
-                [-0.25, 0, -0.4],
-                [0.25, 0, -0.4]
+                [-0.25, 0, 0.3],
+                [0.25, 0, 0.3],
+                [-0.25, 0, -0.3],
+                [0.25, 0, -0.3]
             ];
             
             legPositions.forEach(pos => {
@@ -355,57 +529,98 @@
                 dog.add(leg);
             });
             
+            // 眼睛
+            const eyeGeometry = new THREE.SphereGeometry(0.05);
+            const eyeMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x000000 
+            });
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(-0.15, 0.5, 0.8);
+            rightEye.position.set(0.15, 0.5, 0.8);
+            
+            // 添加毛发效果 - 额外的小块体
+            const furCount = 20;
+            const furGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+            const furMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFFFFFF,
+                roughness: 1
+            });
+            
+            for (let i = 0; i < furCount; i++) {
+                const fur = new THREE.Mesh(furGeometry, furMaterial);
+                const angle = (i / furCount) * Math.PI * 2;
+                const radius = 0.4;
+                fur.position.set(
+                    Math.cos(angle) * radius * Math.random(),
+                    0.3 + Math.random() * 0.3,
+                    Math.sin(angle) * radius * Math.random()
+                );
+                fur.rotation.set(
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI
+                );
+                fur.scale.setScalar(0.5 + Math.random() * 0.5);
+                dog.add(fur);
+            }
+            
             dog.add(body);
             dog.add(head);
+            dog.add(snout);
             dog.add(leftEar);
             dog.add(rightEar);
             dog.add(tail);
+            dog.add(leftEye);
+            dog.add(rightEye);
+            
             dog.position.set(-2, -1.6, 0);
             scene.add(dog);
+            
+            return dog;
         }
 
         // 创建小猫
         function createCat() {
             const cat = new THREE.Group();
             
-            // 身体 - 更优雅的形状
-            const bodyGeometry = new THREE.BoxGeometry(0.5, 0.4, 0.8);
-            bodyGeometry.translate(0, 0.2, 0);
-            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            // 身体
+            const bodyGeometry = new THREE.BoxGeometry(0.4, 0.3, 0.6);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x696969 }); // 灰色
             const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
             
-            // 头部 - 更圆的形状
-            const headGeometry = new THREE.SphereGeometry(0.25, 16, 16);
-            const headMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            // 头部
+            const headGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+            const headMaterial = new THREE.MeshStandardMaterial({ color: 0x696969 });
             const head = new THREE.Mesh(headGeometry, headMaterial);
-            head.position.z = 0.5;
-            head.position.y = 0.4;
+            head.position.z = 0.4;
+            head.position.y = 0.3;
             
-            // 耳朵 - 更尖的三角形
-            const earGeometry = new THREE.ConeGeometry(0.1, 0.2, 4);
-            const earMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            // 耳朵
+            const earGeometry = new THREE.ConeGeometry(0.08, 0.15, 4);
+            const earMaterial = new THREE.MeshStandardMaterial({ color: 0x696969 });
             const leftEar = new THREE.Mesh(earGeometry, earMaterial);
             const rightEar = new THREE.Mesh(earGeometry, earMaterial);
-            leftEar.position.set(-0.15, 0.6, 0.5);
-            rightEar.position.set(0.15, 0.6, 0.5);
+            leftEar.position.set(-0.1, 0.5, 0.4);
+            rightEar.position.set(0.1, 0.5, 0.4);
             leftEar.rotation.x = -Math.PI / 6;
             rightEar.rotation.x = -Math.PI / 6;
             
-            // 尾巴 - 优雅的曲线
-            const tailGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.6);
-            const tailMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            // 尾巴
+            const tailGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.5);
+            const tailMaterial = new THREE.MeshStandardMaterial({ color: 0x696969 });
             const tail = new THREE.Mesh(tailGeometry, tailMaterial);
-            tail.position.set(0, 0.3, -0.4);
+            tail.position.set(0, 0.2, -0.3);
             tail.rotation.x = Math.PI / 3;
             
             // 腿
-            const legGeometry = new THREE.BoxGeometry(0.1, 0.3, 0.1);
-            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            const legGeometry = new THREE.CylinderGeometry(0.04, 0.04, 0.2);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x696969 });
             const legPositions = [
-                [-0.15, 0, 0.3],
-                [0.15, 0, 0.3],
-                [-0.15, 0, -0.3],
-                [0.15, 0, -0.3]
+                [-0.1, -0.15, 0.2],
+                [0.1, -0.15, 0.2],
+                [-0.1, -0.15, -0.2],
+                [0.1, -0.15, -0.2]
             ];
             
             legPositions.forEach(pos => {
@@ -427,41 +642,40 @@
         function createCow() {
             const cow = new THREE.Group();
             
-            // 身体 - 更大更圆润
-            const bodyGeometry = new THREE.BoxGeometry(1.8, 1.4, 2.5);
-            bodyGeometry.translate(0, 0.7, 0);
+            // 身体
+            const bodyGeometry = new THREE.BoxGeometry(1.2, 1.0, 1.8); // 缩小尺寸
+            bodyGeometry.translate(0, 0.5, 0);
             const bodyMaterial = new THREE.MeshStandardMaterial({ 
                 color: 0xFFFFFF,
-                // 使用简单的黑白斑点图案
                 map: new THREE.TextureLoader().load('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFElEQVQYV2NkYGD4z4AHMP7//x8ACtID/+STc0sAAAAASUVORK5CYII=')
             });
             const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
             
-            // 头部 - 更长的形状
-            const headGeometry = new THREE.BoxGeometry(0.8, 0.8, 1.2);
+            // 头部
+            const headGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.9); // 缩小尺寸
             const headMaterial = new THREE.MeshStandardMaterial({ color: 0xFFFFFF });
             const head = new THREE.Mesh(headGeometry, headMaterial);
-            head.position.z = 1.8;
-            head.position.y = 1;
+            head.position.z = 1.2;
+            head.position.y = 0.8;
             
             // 角
-            const hornGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.4);
+            const hornGeometry = new THREE.CylinderGeometry(0.04, 0.04, 0.3);
             const hornMaterial = new THREE.MeshStandardMaterial({ color: 0xDDDDDD });
             const leftHorn = new THREE.Mesh(hornGeometry, hornMaterial);
             const rightHorn = new THREE.Mesh(hornGeometry, hornMaterial);
-            leftHorn.position.set(-0.3, 1.5, 1.8);
-            rightHorn.position.set(0.3, 1.5, 1.8);
+            leftHorn.position.set(-0.2, 1.2, 1.2);
+            rightHorn.position.set(0.2, 1.2, 1.2);
             leftHorn.rotation.z = Math.PI / 4;
             rightHorn.rotation.z = -Math.PI / 4;
             
-            // 腿 - 更粗壮
-            const legGeometry = new THREE.BoxGeometry(0.4, 1.2, 0.4);
+            // 腿
+            const legGeometry = new THREE.BoxGeometry(0.3, 0.9, 0.3);
             const legMaterial = new THREE.MeshStandardMaterial({ color: 0xFFFFFF });
             const legPositions = [
-                [-0.7, 0, 1],
-                [0.7, 0, 1],
-                [-0.7, 0, -1],
-                [0.7, 0, -1]
+                [-0.5, 0, 0.7],
+                [0.5, 0, 0.7],
+                [-0.5, 0, -0.7],
+                [0.5, 0, -0.7]
             ];
             
             legPositions.forEach(pos => {
@@ -478,9 +692,9 @@
             scene.add(cow);
         }
 
-        // 创建场景元素
+        // 创建场景元素并保存引用
         createHouse();
-        createYacht();
+        const yacht = createYacht();
         const seagull = createSeagull();
         createDog();
         createCat();
@@ -497,39 +711,39 @@
         controls.enableDamping = true;           // 启用阻尼效果
         controls.dampingFactor = 0.05;           // 设置阻尼系数
 
+        // 创建天气系统
+        const lights = {
+            ambient: ambientLight,
+            directional: directionalLight
+        };
+        
+        const weatherSystem = new WeatherSystem(scene, renderer, lights);
+
         // 动画循环
         function animate() {
             requestAnimationFrame(animate);
-            
-            const delta = clock.getDelta(); // 获取时间增量
-            
-            // 更新海面动画 - 降低更新频率
-            if (sea && sea.material.uniforms) {
-                sea.material.uniforms.time.value += delta * 0.5;
-            }
+            controls.update();
             
             // 更新动画混合器
             if (mixer) {
-                mixer.update(delta);
+                mixer.update(clock.getDelta());
             }
             
-            // 优化海鸥动画
+            // 更新天气效果
+            if (weatherSystem) {
+                weatherSystem.updateWeatherEffects();
+            }
+            
+            // 更新海鸥动画
             if (seagull) {
-                const time = clock.getElapsedTime();
-                seagull.position.x = Math.sin(time * 0.5) * 10;
-                seagull.position.z = Math.cos(time * 0.5) * 5 - 15;
-                seagull.rotation.y = Math.atan2(
-                    Math.cos(time * 0.5) * 5,
-                    Math.cos(time * 0.5) * 10
-                );
-                
-                // 降低翅膀扇动的更新频率
-                const wingAngle = Math.sin(time * 5) * 0.2;
-                seagull.children[1].rotation.z = wingAngle;
-                seagull.children[2].rotation.z = -wingAngle;
+                seagull.update();
             }
             
-            controls.update();
+            // 更新游艇动画
+            if (yacht) {
+                yacht.update();
+            }
+            
             renderer.render(scene, camera);
         }
 
