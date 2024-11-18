@@ -1,7 +1,6 @@
 # DHuman
 
-这是一个展示3D数字人的网页应用，主要展示OBJ模型，后端使用Python Flask框架，前端使用Three.js构建。应用场景对比各种算法生成的OBJ模型。
-
+这是一个展示3D数字人的网页应用，主要展示GLB模型，后端使用Python Flask框架，前端使用Three.js构建。
 ## 项目结构
 
 - `app.py`: Flask应用的主文件。
